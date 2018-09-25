@@ -1,0 +1,480 @@
+---
+title: "Forecasting Health Expenses Using a Functional Data Model"
+author: "Jens Piontkowski"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    number_sections: yes
+  html_notebook: default
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    df_print: paged
+bibliography: bibliography.bib
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+# Abstract {-}
+
+Traditionally, actuaries make their predictions based on simple, robust methods. Stochastic models become increasingly popular because they can enrich the point estimates with error estimates or even provide the whole probability distribution. Here, we construct such a model for German inpatient health expenses per age using the functional data approach. This allows us to see in which age groups the expenses change the most and where predictions are most uncertain. Jumps in the derived model parameters indicate that three years might be outliers. In fact, they can be explained by changes in the reimbursement system and must be dealt with. As an application we compute the probability distribution of the total health expenses in the upcoming years.
+
+
+
+*Key words:* German health insurance; Health expense; Medical inflation; Short term forecasting; Functional data analysis; Time series 
+
+
+# Introduction
+
+Short term prediction of health expenses is of enormous economic importance for a health insurance company because it has to set the premiums in advance. Underestimation immediately results in underwriting loss, overestimation in uncompetitive premiums. In the German health insurance market there are additional legal requirements: In order to prevent adverse selection the lawgiver has set a financial barrier for the insured to switch to another insurance company. Because this could potentially be exploited by the insurance company, the insurance company has to justify its premium calculation to an independent auditor, called *Treuhänder*. By law, §2 of @KVAV, a loading has to be added to the expected claims to make sure they are certainly sufficient to cover the actual future claims. The independent auditor has to check that the loading is not higher than necessary because that would be to the disadvantage of the insured.
+
+Traditionally, point estimates for the expected claims are obtained through simple robust methods and the loading is added by expert judgement. Here, stochastic models can provide a justification for setting this loading. In practice, variations of the Rusam method are used. The basic underlying idea is that all costs in a year increase by the same factor. To be precise let $y_t(x)$ be the average annual cost of a person of age $x$ in the year $t =  \ldots , T-1, T$. Fix a middle reference age  $x_0$ which has a large number of insured. It is assumed that
+$$
+y_t(x) \approx  y_{t}(x_0) k(x),
+$$
+i.e., the costs are estimated as the product of a purely time--dependent factor $y_{t}(x_0)$, which is simply the cost at the reference age, and a purely age--dependent component $k(x)$, called *Profil*, which is estimated by taking the average across the last couple of years and normalizing at the reference age.
+Forecasts are obtained by linear extrapolation.
+
+
+@CDLS18 fitted several stochastic models to inpatient health claims. Their best fitting model was inspired by the mortality forecasting model of @LC92, but without the log transformation. It can also be seen as a generalization of the Rusam method. They assume
+$$
+y_t(x) = \mu(x) + \kappa(t) \phi(x) + \epsilon_t(x) \quad \mbox{with } \epsilon_t(x)\sim\mathrm{N}(0, \sigma^2).
+$$
+Thus, the average claim is the sum of a purely age--dependent level term $\mu(x)$,  an age--time--interaction term $\kappa(t) \phi(x)$, and an error term.
+The age--time--interaction term is simply the product of a time series $\kappa(t)$ and a sensitivity per age $\phi(x)$. The error is assumed to be normally distributed with a standard deviation independent of age and time. The parameters are found by optimization with respect to the smallest $\sigma$. Forecasting is based on the assumption that $\kappa(t)$ follows a random walk with drift.
+
+Here, we generalize this model by applying the functional data approach:
+
+$$
+y_t(x) = \mu(x) + \sum_{j=1}^J\kappa_j(t) \phi_j(x) + e_t(x) + \epsilon_t(x)  \quad \mbox{with }\   e_t(x) \sim \mathrm{N}(0, v^2(x)) \ \mbox{ and }\ \epsilon_t(x) \sim\mathrm{N}(0, \sigma^2_t(x)).
+$$
+
+
+Thus, the age--time--interaction term has now more components and the error distributions now depend heavily on  age and loosely on time, for details see Section\ \ref{functional-data-modelling-approach}. These components give us deeper insight into the changes over time and allow a detailed prediction error estimation. We will also use random walk with drift for the time series $\kappa_j(t)$, but try Holt's linear models as an alternative, as well. Because the functional data model has so many parameters, they cannot be found by optimization technics alone, instead principal component analysis is used. It can be easily realized with the **R** packages *ftsa* [@ftsa] and *demography* [@demography].
+
+
+
+```{r load_packages_and_data, include=FALSE}
+suppressPackageStartupMessages(library(demography))
+library(rainbow)
+library(knitr)
+library(kableExtra)
+source("plot_sim_basis.R")
+source("plot_sim_total.R")
+source("plot_coeff.R")
+source("fc_error.R")
+
+# read raw data files
+data_claims <- read.csv2("data/bafin_inpatient.csv", check.names = FALSE)
+data_exposure <- read.csv2( "data/bafin_exposure.csv", check.names = FALSE)
+
+#restrict to ages <= 80 as in the original paper
+ages <- 20:80
+data_claims <- data_claims[data_claims$age %in% ages, ] 
+data_claims$age <- NULL
+data_exposure <- data_exposure[data_exposure$age %in% ages, ] 
+data_exposure$age <- NULL 
+
+years <- as.integer(colnames(data_claims))
+if(!all(years == colnames(data_exposure)))
+  stop("Claims data and exposure cover different years!")
+
+# put data into a demogdata class. 
+# We can abuse the "migration type"
+Kx <- demogdata(data_claims, data_exposure, 
+                ages, years, "migration", "claims", "male")
+
+# split into training and test set
+upper_year_fit <- 2008
+KxFit <- extract.years(Kx, years = min(years):upper_year_fit )
+KxTest <- extract.years(Kx, years = (upper_year_fit + 1):max(years))
+
+```
+
+To keep the results here comparable to @CDLS18, we use the same data set, the average annual medical inpatient cost per privately insured male of age 20 to 80 in the years 1996 to 2011, see  Figure\ \ref{fig:plot_claims_exposure} for plots in rainbow colors. This data is provided by the German insurance supervisor @Kx12 in order to assist small private insurance companies in their premium calculation and is one of the few publically available data sets of health expenses per age. The years 1996 to 2008 will be used for fitting, the remaining years 2009 to 2011 for testing. Note the low occupancy at the lower and higher ages. This is likely the cause for the volatility which we will later see at these ages. 
+
+```{r plot_claims_exposure, fig.cap = 'Graphical reprensentation of the available data',  fig.show = 'hold', out.width='50%'}
+oldpar <- par(no.readonly = TRUE)
+par(mar=c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
+plot(Kx, main = paste0("inpatient claims per male (", min(years), "-", max(years), ")"), 
+     ylab = "", #colorchoice = "gray", 
+     plotlegend = TRUE, legendpos = "topleft")
+
+plot(extract.years(Kx, years = 2007:2011), datatype = "pop", 
+     main = paste0("male policy holders (", 2007, "-", max(years), ")"), 
+     ylab = "", #colorchoice = "gray",  
+     plotlegend = TRUE,  legendpos = "topleft")
+par(oldpar)
+```
+
+The source code for this study is available at @HEFDM18.
+
+# Functional data modelling approach
+
+The functional data modelling approach for mortality rates was developed by @HU07 and later refined in @HB08 and @HS09. Our claims data can be treated similarly to the migration data in @HB08.
+
+
+The main idea is as follows: Let $y_t(x)$ be the observed average cost per male of age $x$ in year $t$. It is assumed that it is the realization of a smooth function $f_t(x)$ plus an observational error 
+$$
+ y_t(x) = f_t(x)+\epsilon_t(x)  \quad \mbox{with }\    \epsilon_t(x) \sim\mathrm{N}(0, \sigma_t^2(x)).
+$$
+Note that the smoothing exploits the implicit assumption of a strong correlation between neighboring ages to improve the quality of the model. 
+The standard deviation $\sigma_t(x)$ is either derived from theoretical considerations like in the mortality case or empirically after the smoothing from the observed $\epsilon_t(x) = y_t(x) - f_t(x)$. The latter requires additional assumptions on the time dependence of $\epsilon_t(x)$, e.g., linearity in $t$. The time dependent smooth function $f_t(x)$ is decomposed as 
+$$
+f_t(x)= \mu(x)+\sum_{j=1}^J \kappa_j(t)\phi_j(x) + e_t(x)
+$$
+where $\mu(x)$ is the average level, $\phi_j(x)$ a set of orthonormal basis functions, and the coefficients $\kappa_j(t)$ a set of univariate time series. Finally, $e_t(x)$ is the approximation error which results from this particular representation. It is assumed to be serially uncorrelated and normally distributed with mean $0$ and variance $v(x)$. Thus, the change of $f_t(x)$ in time is given by the term  $\sum \kappa_j(t)\phi_j(x)$. Because the $\phi_j(x)$ are orthonormal, there is no interaction between them and it makes sense to model the time series $\kappa_j(t)$ independently of each other.
+
+
+This model specializes to the Lee--Carter approach by setting $J=1$ and dropping the assumption of a smooth underlying function and thereby merging the errors $\epsilon_t(x)$ and $e_t(x)$ into one.  
+
+
+
+The modelling process consists of six steps, for details see @HU07:
+
+1. Fix a smoothing procedure to obtain $f_t(x)$ from the data and estimate the observational standard deviation  $\epsilon_t(x)$. In our case, we are already given the smoothed data, so we can skip this step. Unfortunately, this means that we cannot determine the observational error and have to neglect it.
+
+2. Set the estimator $\hat{\mu}(x)$ of $\mu(x)$ as the (possibly weighted) mean of the $f_t(x)$ across the years.
+
+3. Find $\phi_j(x)$ and  $\kappa_j(t)$  through a principal component analysis of $f_t(x)- \hat{\mu}$ and choose a appropriately large number $J$ of them for the model. @HB08 noted that the forecasts are in general not getting worse with larger $J$. Compute the residuals $e_t(x)$ and estimate $\hat{v}(x)$ from them. 
+
+4. Choose a time series model for each of the $\kappa_j(t)$. In general, a random walk with drift is the first choice, but more advanced models have been proven useful and we discuss one option for our data below.
+
+5. Forecast as follows: Assume we start at time $t=T$. 
+The time series model for the $\kappa_j(t)$ provides us with $h$--step  forecasts $\hat{\kappa}_{k}(T+h)$, which give us in turn the $h$--step  forecasts 
+$$
+ \hat{y}_{T+h}(x) = \hat{f}_{T+h}(x)= \hat{\mu}(x)+
+ \sum_{j=1}^J \hat{\kappa}_j(T+h)\phi_j(x).
+$$
+
+6. Compute the forecast variance with the following explicit formula:
+$$
+\mathrm{Var}(\hat{y}_{T+h}(x)| {\cal{I}}, \{ \mu, \phi_j \}) = \hat{\sigma}_\mu^2(x) + \sum_{j=1}^J u_j(T+h) \phi_j^2(x) + \hat{v}(x) + \sigma_t^2(x),
+$$
+where $\cal{I}$ stands for the data. $\hat{\sigma}_\mu(x)$ can be derived from the smoothing procedure, e.g., if $\hat{\mu}(x)$ is the mean of $y_t(x)$ across $m$ years, then  $\hat{\sigma}^2_\mu(x)$ is the sample variance of  $y_t(x)$ divided by $m$. The coefficient variance $u_j(T+h)=\mathrm{Var}(\kappa_j(T+h)|\kappa_j(T), \kappa_j(T-1), \ldots)$ follows from the times series model.  This formula shows all the different sources of randomness in the model: smoothing method, time series model, approximation error, and observational error.
+
+@HS09 showed how to use nonparametric bootstrap methods in order to drop the normality assumptions above.
+
+
+
+# Setting up the model
+
+First, we have to decide whether we want to transform the data. The claim curves are rather steep, so a log transformation might be useful. However, the values span only two powers of ten, which is far less than the nine powers of ten in the case of mortality modelling. In addition, after a log transform we optimize the relative error, while we are interested in the absolute error. These are most likely the reasons why the models without a log transformation outperformed the models with one in @CDLS18. Thus, we will not apply a log transformation here. 
+
+```{r fit_fdm}
+Kx_fdm <- fdm(KxFit, order = 5, transform = FALSE, ngrid = length(Kx$age))
+#summary(Kx_fdm)
+Kx_varExplained <- round(100 * Kx_fdm$varprop, 1)
+```
+
+The steps 2 and 3 of the modelling process, i.e., subtracting the mean across time from the data and performing a principal component analysis of the remaining age--time--interaction term, can easily be done with function *fdm* of **R** package *demography*. Figure\ \ref{fig:plot_fdm_comp} shows the mean $\hat{\mu}$ and the first four basis functions $\phi_1, \phi_2,  \phi_3, \phi_4$ in  the top row and the corresponding coefficients $\kappa_1, \kappa_2,  \kappa_3, \kappa_4$ in the button row. These components explain  `r  format(Kx_varExplained[1], nsmall = 1)`%, `r  format(Kx_varExplained[2], nsmall = 1)`%, `r format(Kx_varExplained[3], nsmall = 1)`%, and `r format(Kx_varExplained[4], nsmall = 1)`% of the variance. Thus, at least the first two components should be considered in the further modelling process.
+
+
+```{r plot_fdm_comp, fig.show = 'hold', out.width='100%', fig.cap = 'Basis functions and associated coefficients of the functional data model'}
+oldpar <- par(no.readonly = TRUE)
+par(mar = c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
+plot(Kx_fdm, components = 4) 
+par(oldpar)
+```
+
+The first basis function has a shape similar to mean (except at low ages). It represents a general increase of all costs. Roughly, we get the Rusam model if we assume that they have the same shape and the higher components are negligible. The best model of @CDLS18, M1, acknowledges that they may be different, but neglects the higher components as well. As the second component explains  `r  format(Kx_varExplained[2], nsmall = 1)`% of the variance, we except a more precise prediction by incorporating it into the modelling process.
+ 
+The second basis function models shifts of costs at lower and higher ages compared to the middle ages. The third basis function describes the movement of costs at high ages.  The fourth basis function models changes in the ages around 30 and 70. However, it explains only `r format(Kx_varExplained[4], nsmall = 1)`% of the variance and the corresponding coefficient looks like random noise, thus we will not consider it further.
+
+Looking at the coefficients, we immediately notice the jump in the first coefficient from the year 1995 to 1996 and all coefficients seem to have exceptional behavior in the years 2003 and 2004. Outliers in health insurance are most of the time due to changes in the reimbursement system for medical services. In fact, this is here the case. From 1995 to 1996 the cost recovery principle was replaced by a 	lump compensation system, see @wiki_Fallpauschale. In 2003 there was a voluntary switch to a new German Diagnosis Related Groups (G--DRG) system.  It was made obligatory in 2004, but many hospitals had problems with the switch and were unable to use the system until 2015, see @wiki_GDRG. Thus, we will drop the data of the year 1995 because of the regime change and the data of the years 2003 and 2004 because it is certainly flawed. 
+
+
+
+```{r remove_outliers}
+# remove outlier years 1995 and 2003/4
+Kx2 <- extract.years(Kx, years = 1996:max(Kx$year))
+#Kx2$year[8:9]
+Kx2$rate$male[, 8:9] <- NA
+Kx2Fit <- extract.years(Kx2, years = 1996:upper_year_fit)
+
+# fit new model
+Kx2_fdm <- fdm(Kx2Fit, order = 3, transform = FALSE, ngrid = length(Kx$age))
+#summary(Kx2_fdm)
+Kx2_varExplained <- round(100 * Kx2_fdm$varprop, 1)
+```
+
+We refit the model on the remaining data. This time the components explain `r  format(Kx2_varExplained[1], nsmall = 1)`%, `r  format(Kx2_varExplained[2], nsmall = 1)`%, and `r format(Kx2_varExplained[3], nsmall = 1)`%, thus in total `r format(sum(Kx2_varExplained), nsmall = 1)`% of the variance and are plotted in Figure\ \ref{fig:plot_Kx2_fdm}. The increase of costs at the younger ages becomes more prominent in the first basis function. The second basis function is mostly devoted to this and is now missing the changes at higher ages. The third basis function is similar to the one before. Again the second and third basis function together control the behavior at lower and higher ages. The residuals $e_t(x)$ are plotted on the left hand side of Figure\ \ref{fig:plot_Kx2_res_interaction}. They are slightly less in younger ages, but do not exhibit a trend in time. 
+
+
+```{r plot_Kx2_fdm, fig.cap = 'Funtional data model after outlier removal', fig.show = 'hold', out.width='100%'}
+oldpar <- par(no.readonly = TRUE)
+par(mar = c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
+plot(Kx2_fdm) 
+par(oldpar)
+```
+
+It is very instructive to plot the full age--time--interaction, i.e., the data minus the mean across time. We include the years that we want to predict as fat lines, see right hand side of Figure\ \ref{fig:plot_Kx2_res_interaction}. Again, we note that most changes happen at lower and higher ages. At higher ages we have a strong increase, which we can read off the first basis function. At the lower ages there is an increase with some ups and downs, which is the reason for shape of the second basis function besides the first. There have been  hardly any changes for the ages from 34 to 53 in the data until 2008, which we use for fitting. But for our test years we see a bump appearing at the ages 45 to 55. As these years are between the group from 35 to 44, which is still constant, and the group above 55, which was always volatile, a change in the smoothing method is the most likely explanation. Unfortunately, it is impossible to foresee the appreance of this bump because there was no indication of it before.
+
+
+
+```{r plot_Kx2_res_interaction, fig.cap = 'Residuals and interactions', fig.show = 'hold', out.width='50%'}
+#residuals
+oldpar <- par(no.readonly = TRUE)
+par(mar=c(5,4,4,2) + 0.1 - 1) #mar=c(5,4,4,2) + 0.1
+plot(fds(Kx2_fdm$residuals$x, Kx2_fdm$residuals$y, xname = "Age"), 
+     main = paste0("residuals (", min(Kx2_fdm$year), " - ",  max(Kx2_fdm$year), ")"),
+     plotlegend = TRUE,  legendpos = "bottomleft" #, colorchoice = "gray"
+     )
+
+# interaction
+Kx_all <- Kx2
+Kx_all$rate$male <- Kx_all$rate$male - matrix(Kx2_fdm$basis[, "mean"],
+                                              nrow = nrow(Kx_all$rate$male), 
+                                              ncol = ncol(Kx_all$rate$male), 
+                                              byrow = FALSE) 
+plot(Kx_all, main = paste0("interactions (", min(Kx_all$year), " - ",  max(Kx_all$year), ")"),
+     ylab = "", plotlegend = TRUE, legendpos = "topleft", # colorchoice = "gray",
+     lwd = c(rep(1, length(Kx_all$year)-3), rep(4,3)))
+par(oldpar)
+```
+
+
+
+
+# Choosing a time series model and forecasting it
+
+Because we have only few observation years, we should choose a simple and robust time series model, so a *random walk with drift* (also known as a ARIMA(0,1,0) model with drift) is the natural choice. In this case the one--step--ahead coefficient $\kappa_j(t+1)$  arises as the sum of the previous one, a constant drift $d_j$, and a normal distributed error:  
+
+$$
+\kappa_j(t+1) = \kappa_j(t) + d_j + \epsilon_j(t), \quad \mbox{where } \epsilon_j(t) \sim \mathrm{N}(0, \sigma_j^2).
+$$
+
+The estimated values for the $\kappa_j$ before and after outlier removal are shown in Table\ \ref{tab:forecast_rwdrift_coeff}. In both cases we have an obvious drift in the $\kappa_1$, while there is no significant evidence for a drift in $\kappa_2$ and $\kappa_3$.
+However, we have no reason to believe that they do not have a drift, so we keep the best estimate. Note that $d_1$ before outlier removal is much larger than after outlier removal, this is due to the jump of $\kappa_1$ from the year 1995 to 1996.
+Figure\ \ref{fig:forecast_rwdrift_coeff_plot} shows the predictions in red together with yellow 90% prediction intervals, the true values are given in black. Remember that the basis functions changed a bit through the outlier removal and therefore the coefficients as well.
+Removing the outliers has roughly halved the prediction intervals. The most dominating coefficient $\kappa_1$ is predicted well with the exception of the jump in 2010, which is at the border of the prediction interval in the case with outlier removal.
+The coefficients $\kappa_2$ and $\kappa_3$ do in fact look like random noise, but the slight trends improve the predictions and the prediction intervals seem to be plausible. Note in particular that in case with outlier removal the trend of $\kappa_2$ in the years 2005 to 2008 breaks off immediately in 2009 as the random walk with drift predicts. However, this is not what we would have expected.   
+
+
+```{r forecast_rwdrift}
+Kx2_forecast_rw <- forecast(Kx2_fdm, h = 3, level = 90, jumpchoice = "fit", 
+                            method = "rwdrift", warnings = TRUE)
+model_rw <- data.frame(k = 1:3,
+  drift = c(Kx2_forecast_rw$coeff$`Basis 2`$model$model$coef,
+            Kx2_forecast_rw$coeff$`Basis 3`$model$model$coef,
+            Kx2_forecast_rw$coeff$`Basis 4`$model$model$coef), 
+  std_err_drift =  c(sqrt(diag(Kx2_forecast_rw$coeff$`Basis 2`$model$model$var.coef)),
+                   sqrt(diag(Kx2_forecast_rw$coeff$`Basis 3`$model$model$var.coef)),
+                   sqrt(diag(Kx2_forecast_rw$coeff$`Basis 4`$model$model$var.coef))), 
+  sigma =  c(sqrt(Kx2_forecast_rw$coeff$`Basis 2`$model$model$sigma2), 
+             sqrt(Kx2_forecast_rw$coeff$`Basis 3`$model$model$sigma2),
+             sqrt(Kx2_forecast_rw$coeff$`Basis 4`$model$model$sigma2))
+  )
+# 
+# 
+# kable(model_rw,  col.names = c("$j$", "$\\rho_j$", "std error of $\\rho_j$", "$\\sigma_j$"),
+#        row.names = FALSE, digits = 1,
+#        caption = "Parameters for the random walk with drift time series",
+#        booktabs = T, escape = FALSE)
+```
+
+```{r with_outliers}
+# for comparison compute random walk model without removing the outliers
+Kx_fdm <- fdm(KxFit, order = 3, transform = FALSE, ngrid = length(Kx$age))
+Kx_forecast <- forecast(Kx_fdm, h = 3, level=90, jumpchoice = "fit", method = "rwdrift",
+                        warnings=TRUE)
+model_Kx <- data.frame(k = 1:3,
+  drift = c(Kx_forecast$coeff$`Basis 2`$model$model$coef,
+            Kx_forecast$coeff$`Basis 3`$model$model$coef,
+            Kx_forecast$coeff$`Basis 4`$model$model$coef), 
+  std_err_drift =  c(sqrt(diag(Kx_forecast$coeff$`Basis 2`$model$model$var.coef)),
+                   sqrt(diag(Kx_forecast$coeff$`Basis 3`$model$model$var.coef)),
+                   sqrt(diag(Kx_forecast$coeff$`Basis 4`$model$model$var.coef))), 
+  sigma =  c(sqrt(Kx_forecast$coeff$`Basis 2`$model$model$sigma2), 
+             sqrt(Kx_forecast$coeff$`Basis 3`$model$model$sigma2),
+             sqrt(Kx_forecast$coeff$`Basis 4`$model$model$sigma2))
+  )
+```
+```{r forecast_rwdrift_coeff}
+kable(merge(model_Kx, model_rw, by = "k"),
+      col.names =c("$j$",  rep( c("$d_j$", "std. error of $d_j$", "$\\sigma_j$"), 2)),
+      digits = 2, row.names = FALSE,
+      caption = "Parameters for the random walk with drift time series",
+      booktabs = T, escape = FALSE)  %>%
+  add_header_above(c(" ","before outlier removal" = 3, "after outlier removal" = 3), escape = FALSE) 
+
+```
+```{r forecast_rwdrift_coeff_plot, fig.height = 2, fig.show = 'hold', out.width='100%', fig.cap = 'Forecasting the coefficents with a random walk with drift before and after outlier removal'}
+ylimList <-list(c(-1000, 3000), c(-500, 1200), c(-200, 100))
+plot_coeff(Kx_forecast, KxTest, ylimList = ylimList)
+#
+plot_coeff(Kx2_forecast_rw, KxTest, ylimList = ylimList)
+```
+
+The characteristic of the random walk model with drift is that each jump is fully added to all future values and any two jumps are uncorrelated. Intuitively, we expect that a huge increase of costs to be followed by a smaller one. Thus, we try a second time series model which potentially has the option to capture this, namely the simplest form of exponential smoothing with a linear trend, *Holt’s linear trend method* (which is equivalent to an ARIMA(0,2,2) model with restrictions on the coefficients). It can be formulated as a state space model with additive errors as follows, see @Holt2004, @HKOS08, and @HA18:
+
+$$
+\begin{array}{rr@{\,}l@{\qquad}l}
+& \kappa_j(t+1) & = l_j(t) + b_j(t) + \epsilon_j(t), &\mbox{where } \epsilon_j(t) \sim \mathrm{N}(0, \sigma_j^2)\\
+\mbox{level:}& l_j(t+1) & = l_j(t) + b_j(t) +  \alpha_j \epsilon_j(t) & \mbox{for  } 0\le \alpha_j \le 1\\
+\mbox{growth:}& b_j(t+1) & = b_j(t) +  \beta_j \epsilon_j(t)& \mbox{for  } 0\le \beta_j \le \alpha_j
+\end{array}
+$$
+The model uses the two latent variables $l(t)$, the trend, and $b(t)$, the growth. In the absence of any randomness $l(t)$ and $\kappa(t)$ describe a straight line with slope $b(t)$. 
+The parameters $\alpha$ and $\beta$ determine how much of the observed error is incorporated into the level resp.\ the slope.
+Interesting special cases are: $\alpha= \beta = 0$ is a linear regression;  $\alpha=1$ and $\beta = 0$ is a random walk with drift $b(t) = \mbox{const.}$  
+
+One disadvantage of this model type is that it is difficult to find the parameters $\alpha$ and $\beta$. Often several sets of parameters provide a good fit. In particular, often ones with a large value of $\beta$ fit well, but this means the growth/slope changes very fast, which is usually undesirable. One deals with this problem by restricting $\beta$ to small values. We use Holt's linear model only for the functional data model after outlier removal. The unrestricted parameters are given in the left hand side of Table\ \ref{tab:forecast_ets_coeff} and the time series are plotted in top row of Figure\ \ref{fig:forecast_ets_coeff_plot}. We do in fact see large $\beta_1$ and $\beta_2$, and the high jumps of the second coefficient at the end are extrapolated into the future. While this may look plausible in the figure, remember that it means in reality decreasing health cost at lower ages (even after taking the other components into account) which cannot be true in the long run. If we use the restriction $\beta \le 0.2$, the models for $\kappa_1$ and $\kappa_2$ become random walks with drift. So, to get something new we require $\beta \le 0.25$. Here, $\kappa_1$ has an interesting new model, $\kappa_2$ follows a random walk, and $\kappa_3$ is modeled by a linear regression, see right hand side of  Table\ \ref{tab:forecast_ets_coeff} and bottom row of Figure\ \ref{fig:forecast_ets_coeff_plot}. 
+
+
+
+```{r forecast_ets_unres_coeff}
+Kx2_forecast_ets_unres <- forecast(Kx2_fdm, h = 3, level = 90, jumpchoice = "fit", 
+                             method = "ets.na", model = "AAN", 
+                             upper = c(0.999, 0.999), lower = c(0.001, 0.001),
+                             warnings = FALSE)
+model_ets_unres <- data.frame(k = 1:3,
+  alpha = c(Kx2_forecast_ets_unres$coeff$`Basis 2`$model$model$par["alpha"],
+            Kx2_forecast_ets_unres$coeff$`Basis 3`$model$model$par["alpha"],
+            Kx2_forecast_ets_unres$coeff$`Basis 4`$model$model$par["alpha"]), 
+  beta =  c(Kx2_forecast_ets_unres$coeff$`Basis 2`$model$model$par["beta"],
+            Kx2_forecast_ets_unres$coeff$`Basis 3`$model$model$par["beta"],
+            Kx2_forecast_ets_unres$coeff$`Basis 4`$model$model$par["beta"]), 
+  sigma =  c(sqrt(Kx2_forecast_ets_unres$coeff$`Basis 2`$model$model$sigma2), 
+             sqrt(Kx2_forecast_ets_unres$coeff$`Basis 3`$model$model$sigma2),
+             sqrt(Kx2_forecast_ets_unres$coeff$`Basis 4`$model$model$sigma2))
+  )
+# kable(model_ets_unres, digits = 2,
+#       col.names =c("$j$"," $\\alpha_j$", "$\\beta_j$", "$\\sigma_j$"), 
+#       escape = FALSE,
+#       row.names = FALSE, booktabs = T)%>%
+#    kable_styling(position = "center")
+```
+
+
+
+```{r forecast_ets_coeff}
+Kx2_forecast_ets <- forecast(Kx2_fdm, h = 3, level = 90, jumpchoice = "fit", 
+                             method = "ets.na", model = "AAN", 
+                             upper = c(0.999, 0.25), lower = c(0.001, 0.001),
+                             warnings = FALSE)
+model_ets <- data.frame(k = 1:3,
+  alpha = c(Kx2_forecast_ets$coeff$`Basis 2`$model$model$par["alpha"],
+            Kx2_forecast_ets$coeff$`Basis 3`$model$model$par["alpha"],
+            Kx2_forecast_ets$coeff$`Basis 4`$model$model$par["alpha"]), 
+  beta =  c(Kx2_forecast_ets$coeff$`Basis 2`$model$model$par["beta"],
+            Kx2_forecast_ets$coeff$`Basis 3`$model$model$par["beta"],
+            Kx2_forecast_ets$coeff$`Basis 4`$model$model$par["beta"]), 
+  sigma =  c(sqrt(Kx2_forecast_ets$coeff$`Basis 2`$model$model$sigma2), 
+             sqrt(Kx2_forecast_ets$coeff$`Basis 3`$model$model$sigma2),
+             sqrt(Kx2_forecast_ets$coeff$`Basis 4`$model$model$sigma2))
+  )
+
+
+kable(merge(model_ets_unres, model_ets, by = "k"),
+      col.names =c("$j$",  rep(c("$\\alpha_j$", "$\\beta_j$", "$\\sigma_j$"), 2)),
+      digits = 2, row.names = FALSE,
+      caption = "Parameters for Holt's linear model",
+      booktabs = T, escape = FALSE)  %>%
+  add_header_above(c(" ","unrestricted" = 3, "restricted" = 3), escape = FALSE) 
+```
+
+
+```{r forecast_ets_coeff_plot, fig.height = 2, fig.show = 'hold', out.width='100%', fig.cap = 'Forecasting the coefficents with Holt’s linear trend method, unrestricted and restricted.'}
+plot_coeff(Kx2_forecast_ets_unres, KxTest, ylimList = ylimList)
+#, out.width='50%'
+plot_coeff(Kx2_forecast_ets, KxTest, ylimList = ylimList)
+```
+
+
+
+
+# Forcasting the whole model
+
+In the preceding sections we defined all the components for three stochastic models  --- our favorite model is the one after outlier removal with random walk with drift as time series model, as an alternative we use Holt's linear model as the time series model; finally, we have for comparison the model based on the whole data set with random walk with drift. We are now ready to produce point--forecasts as well as prediction intervals. 
+
+Figure\ \ref{fig:forecast_interaction} shows the age--time--interaction term for the years 2009 to 2011. To get the total claims one has to add the purely age--dependent average level $\mu(x)$. It is left out in order to show the time--dependence more clearly. Adding it one gets graphs like the left hand side of Figure\ \ref{fig:plot_claims_exposure}, which is dominated by the steepness of $\mu(x)$.
+
+The black lines are the actual claims. The red lines are the predicted claims. The gray lines show the best approximation possible to the actual data with the chosen basis functions. The thin red lines are the 90% prediction intervals based on the variance formula of Section\ \ref{functional-data-modelling-approach} and normality assumption. Finally, the yellow shaded areas are the prediction intervals based on Monte Carlo simulation, where the unknown error distributions are simulated by the bootstrap method of @HS09. The latter is implemented in the *simulate* function of the **R** package *demography*.
+
+
+```{r forecast_interaction, fig.height = 2.9, fig.show = 'hold',  out.width = '100%', fig.cap = 'Forecasts for the years 2009 to 2011'}
+# random walk #####
+#
+plot_sim_basis(Kx2_forecast_rw, KxTest, KxTest$year, main = "random walk" , 
+               ylim = c(-100, 500), quant.lower = .05, quant.upper = .95)  
+
+
+# ets #####
+#
+plot_sim_basis(Kx2_forecast_ets, KxTest, KxTest$year, main = "Holt's" , 
+               ylim = c(-100, 500), quant.lower = .05, quant.upper = .95)  
+
+
+# with outliers #####
+#
+plot_sim_basis(Kx_forecast, KxTest, KxTest$year, main = "with outliers" , 
+               ylim = c(-100, 500), quant.lower = .05, quant.upper = .95)  
+```
+
+
+A gap between the black and the gray curve tells us that the claim curve has a new shape feature that has not been important before. This is here the case for the middle ages. We expected this already while looking at the interaction terms in Figure\ \ref{fig:plot_Kx2_res_interaction}. There we saw an increase of the claim amounts for these ages, which have been nearly constant in all the years before. A gap between the gray curve and the red curve indicates errors in the time series prediction. Here, we note in particular that we underestimate the development at the young ages in 2011. This corresponds to the sharp drop of coefficient 2 in Figure\ \ref{fig:forecast_rwdrift_coeff_plot} resp.\ \ref{fig:forecast_ets_coeff_plot}. The behavior of coefficient 2 is rather erratic and therefore hard to predict. The reason for this is most likely the low exposure in this age group, see Figure\ \ref{fig:plot_claims_exposure}, which in turn means that this age group is economically less important. Another widening gap appears at the ages between 55 and 70. However, this error switches signs between 2010 and 2011, thus need not be systematic. Also, the prediction intervals are rather large in this age group, so precise predictions are difficult here. In fact, for this age group the predictions of the models differ the most. Forecasting with Holt's linear method is better compared to random walk with drift in 2010, but worse in 2011.
+
+Turning to the prediction intervals we immediately notice the huge intervals if we do not remove the outliers. But even these cannot capture the beforehand unseen change in the middle ages. With the removal of the outliers the prediction intervals become very narrow. The gray curves stay inside, this follows essentially from the fact that time series predictions stay inside their prediction intervals in  Figure\ \ref{fig:forecast_rwdrift_coeff_plot} resp.\ \ref{fig:forecast_ets_coeff_plot}, but the actual claim curve in black moves outside these bound while it evolves into beforehand unseen shapes. The computationally less expensive approximation of the prediction intervals by the variance formula and normality assumption is most of the time good, exceptions occur when the intervals are very wide --- at the younger ages and for the lower bounds in the case without outlier removal.  
+
+
+Standard quality measures in form of the rooted mean square error (RMSE) and the mean absolute error (MAE) are given in Table\ \ref{tab:forecast_errors}. For comparison the best model of @CDLS18, M1, is included. As we have already seen in Figure\ \ref{fig:forecast_interaction} the model with Holt's linear trend method is better in 2010, but worse in 2011 than the model with the random walk with drift. Both give slightly better predictions than the M1 model. However, the main improvement of the models here compared to M1 is the more refined error structure. 
+Firstly, we use here an age--dependent approximation and observation error with variance $v(x)$ resp.\ $\sigma^2_t(x)$.
+Secondly, we use more components for the age--time--interaction and take the uncertainties of the time series prediction for the coefficients $\kappa_j(t)$ into account, which were neglected in the M1 model. Together this leads to more age--specific prediction intervals. 
+
+
+
+
+
+```{r forecast_errors}
+errors <- rbind(
+  fc_error(Kx2_forecast_rw, KxTest, "random walk with drift")[, c(1,2,4,5)],
+  fc_error(Kx2_forecast_ets, KxTest, "Holt's")[, c(1,2,4,5)],
+  fc_error(Kx_forecast, KxTest, "with outliers")[, c(1,2,4,5)],
+    data.frame(model =c("M1"), 
+             year = KxTest$year, 
+             MAE = c(24.26994, 51.74541, 67.72094), 
+             RMSE = c(34.49802, 79.59536, 88.29558))
+)
+rownames(errors) <- NULL
+
+kable(reshape(errors, direction = "wide", idvar = "model", timevar = "year"),
+      col.names =c("model",  rep(c("MAE", "RMSE"), 3)),
+      caption = "Rooted mean square error (RMSE) and the mean absolute error (MAE) for the models",
+      digits = 1, row.names = FALSE,
+      booktabs = T) %>%
+  add_header_above(c(" ", "2009" = 2, "2010" = 2, "2011" = 2))
+```
+
+
+As one application of the stochastic model we predict the distribution of the total claim expenses of all insured in the years 2009 to 2011, see Figure\ \ref{fig:forecast_total}. Again, we see how strongly the removal of the outliers influences the uncertainty of the predictions. In 2009 and 2011 the actual expenses are close to the maximum of the distribution, while for 2010 the total expenses are underestimated due to the previously unseen increase of expenses in the middle ages. In 2011 this is compensated by a reduction of expenses in the age group from 60 to 70.
+
+
+```{r forecast_total, fig.show = 'hold',  out.width='33%', fig.cap = 'Forecasted total expenses'}
+plot_sim_total(Kx2_forecast_rw,  KxTest, years = KxTest$year, xlim = c(235, 285),
+               main = "random walk with drift")
+plot_sim_total(Kx2_forecast_ets, KxTest, years = KxTest$year, xlim = c(235, 285), 
+               main = "Holt's linear model" )
+plot_sim_total(Kx_forecast,      KxTest, years = KxTest$year, xlim = c(235, 285),
+               main = "with outliers")
+```
+
+
+
+# Conclusion and outlook
+The functional data approach gave us deeper insight into the data. The first three basis functions had obvious meanings: an overall increase of expenses and special trends at the younger resp.\ older ages. The jumps in the coefficients led us to suspect outliers, which were in fact caused by legal changes. For forecasting the coefficient time series the canonical choice was random walk with drift, which worked well. As an alternative we discussed the use of Holt's linear model. It is more flexible, the drift can adapt over time. However, it is difficult to fit because parameter estimates become more uncertain. The reason is that Holt's model is equivalent to an ARIMA(0,2,2) model, i.e., second order differences have to be computed. As our data covers only a few years and contains lots of noise, those get unstable and lead to uncertain parameters. Thus, Holt's linear model should be used with caution. From the functional data model we obtained detailed prediction error estimates, which helped us to analyse the test cases.
+
+For this particular claim data set the analysis revealed again the main obstacles for a precise prediction of health expenses: Firstly, legal and administrative changes introduce outliers or even regime changes, which make the data before them less informative. Secondly, changes in the data collection or smoothing method over time cause further inconsistencies. 
+
+This suggests a direction for future research: Develop the functional data approach further to allow a weighted influence of the years on the model, outlier years or years before a regime change should have less influence than the more recent years. The ideas of @HS09 will be a good starting point. 
+
+Further, the methods here should be applied to the individual tariffs of an insurance company. There one has the raw data and can choose the smoothing method oneself. However, because inpatient claims are very volatile and the number of insured is only in the tens of thousands, one faces a large observational error. Hence, credibility methods should be developed, i.e., the data of all available tariffs should be used to make the prediction for each individual tariff more robust.
+
+
+
+# References
+
