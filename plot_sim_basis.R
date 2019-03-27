@@ -15,7 +15,7 @@ plot_sim_basis <- function(fc, test, years , quant.lower = .1, quant.upper = .9,
   par(mfcol = c(1, length(years)), mar=c(5,4,4,2) + 0.1 - 1) #mar=c(5,4,4,2) + 0.1
   for(year in years){
     # the following line will be overdrawn by the polygon
-    plot(x, sim_mean[,as.character(year)], type = "l", lwd = 2, xlab = "Age", ylab = "", main = paste(main, year), ...)
+    plot(x, sim_mean[,as.character(year)], type = "l", lwd = 2, xlab = "age", ylab = "", main = paste(main, year), ...)
     polygon(c(x, rev(x)),
             c(sim_lo[,as.character(year)], rev(sim_hi[,as.character(year)])), col="yellow", border = NA)
 #    lines(x, sim_mean[,as.character(year)], type = "l", lwd = 2, col = "blue") # prediction on the mean, very similar to point prediction

@@ -32,7 +32,10 @@ Traditionally, actuaries make their predictions based on simple, robust methods.
 
 Short term prediction of health expenses is of enormous economic importance for a health insurance company because it has to set the premiums in advance. Underestimation immediately results in underwriting loss, overestimation in uncompetitive premiums. In the German health insurance market there are additional legal requirements: In order to prevent adverse selection the lawgiver has set a financial barrier for the insured to switch to another insurance company. Because this could potentially be exploited by the insurance company, the insurance company has to justify its premium calculation to an independent auditor, called *Treuhänder*. By law, §2 of @KVAV, a loading has to be added to the expected claims to make sure they are certainly sufficient to cover the actual future claims. The independent auditor has to check that the loading is not higher than necessary because that would be to the disadvantage of the insured.
 
-Traditionally, point estimates for the expected claims are obtained through simple robust methods and the loading is added by expert judgement. Here, stochastic models can provide a justification for setting this loading. In practice, variations of the Rusam method are used. The basic underlying idea is that all costs in a year increase by the same factor. To be precise let $y_t(x)$ be the average annual cost of a person of age $x$ in the year $t =  \ldots , T-1, T$. Fix a middle reference age  $x_0$ which has a large number of insured. It is assumed that
+Traditionally, point estimates for the age--dependent expected claims are obtained through simple robust methods and an additive or relative loading is added by expert judgement. Here, stochastic models can provide a justification for setting this loading:
+Because the premium has to be sufficient on tariff level, one first needs to compute the claim distribution of the tariff as a whole. Then one chooses a risk measure and determines the required capital based on the claim distribution. Finally, one spreads this risk capital in a consistent manner as an additive or relative loading on the age--dependent expected claims.
+
+In practice, the point estimates are obtained  through the Rusam method. The basic underlying idea is that all costs in a year increase by the same factor. To be precise let $y_t(x)$ be the average annual cost of a person of age $x$ in the year $t$. Fix a middle reference age  $x_0$ which has a large number of insured. It is assumed that
 $$
 y_t(x) \approx  y_{t}(x_0) k(x),
 $$
@@ -54,7 +57,7 @@ y_t(x) = \mu(x) + \sum_{j=1}^J\kappa_j(t) \phi_j(x) + e_t(x) + \epsilon_t(x)  \q
 $$
 
 
-Thus, the age--time--interaction term has now more components and the error distributions now depend heavily on  age and loosely on time, for details see Section\ \ref{functional-data-modelling-approach}. These components give us deeper insight into the changes over time and allow a detailed prediction error estimation. We will also use random walk with drift for the time series $\kappa_j(t)$, but try Holt's linear models as an alternative, as well. Because the functional data model has so many parameters, they cannot be found by optimization technics alone, instead principal component analysis is used. It can be easily realized with the **R** packages *ftsa* [@ftsa] and *demography* [@demography].
+Thus, the age--time--interaction term has now more components and the error distributions now depend heavily on  age and loosely on time, for details see Section\ \ref{functional-data-modelling-approach}. These components give us deeper insight into the changes over time and allow a detailed prediction error estimation. We will also use random walk with drift for the time series $\kappa_j(t)$, but try Holt's linear models as an alternative, as well. Because the functional data model has so many parameters, they cannot be found by optimization technics alone, instead the basis functions $\phi_j(x)$ and the coefficients $\kappa_j(t)$ are determined through principal component analysis. This can be easily realized with the **R** packages *ftsa* [@ftsa] and *demography* [@demography].
 
 
 
@@ -97,16 +100,16 @@ KxTest <- extract.years(Kx, years = (upper_year_fit + 1):max(years))
 
 To keep the results here comparable to @CDLS18, we use the same data set, the average annual medical inpatient cost per privately insured male of age 20 to 80 in the years 1996 to 2011, see  Figure\ \ref{fig:plot_claims_exposure} for plots in rainbow colors. This data is provided by the German insurance supervisor @Kx12 in order to assist small private insurance companies in their premium calculation and is one of the few publically available data sets of health expenses per age. The years 1996 to 2008 will be used for fitting, the remaining years 2009 to 2011 for testing. Note the low occupancy at the lower and higher ages. This is likely the cause for the volatility which we will later see at these ages. 
 
-```{r plot_claims_exposure, fig.cap = 'Graphical reprensentation of the available data',  fig.show = 'hold', out.width='50%'}
+```{r plot_claims_exposure, fig.cap = 'Graphical reprensentation of the available data in rainbow colors',  fig.show = 'hold', out.width='50%'}
 oldpar <- par(no.readonly = TRUE)
 par(mar=c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
 plot(Kx, main = paste0("inpatient claims per male (", min(years), "-", max(years), ")"), 
-     ylab = "", #colorchoice = "gray", 
+     xlab = "age", ylab = "",  
      plotlegend = TRUE, legendpos = "topleft")
 
 plot(extract.years(Kx, years = 2007:2011), datatype = "pop", 
      main = paste0("male policy holders (", 2007, "-", max(years), ")"), 
-     ylab = "", #colorchoice = "gray",  
+     xlab = "age", ylab = "", #colorchoice = "gray",  
      plotlegend = TRUE,  legendpos = "topleft")
 par(oldpar)
 ```
@@ -144,7 +147,7 @@ The modelling process consists of six steps, for details see @HU07:
 
 4. Choose a time series model for each of the $\kappa_j(t)$. In general, a random walk with drift is the first choice, but more advanced models have been proven useful and we discuss one option for our data below.
 
-5. Forecast as follows: Assume we start at time $t=T$. 
+5. Forecast as follows: Assume the last observed year is $t=T$. 
 The time series model for the $\kappa_j(t)$ provides us with $h$--step  forecasts $\hat{\kappa}_{k}(T+h)$, which give us in turn the $h$--step  forecasts 
 $$
  \hat{y}_{T+h}(x) = \hat{f}_{T+h}(x)= \hat{\mu}(x)+
@@ -175,17 +178,17 @@ The steps 2 and 3 of the modelling process, i.e., subtracting the mean across ti
 
 
 ```{r plot_fdm_comp, fig.show = 'hold', out.width='100%', fig.cap = 'Basis functions and associated coefficients of the functional data model'}
-oldpar <- par(no.readonly = TRUE)
-par(mar = c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
-plot(Kx_fdm, components = 4) 
-par(oldpar)
+plot(Kx_fdm, components = 4, 
+     main.title = "main effects", interaction.title = "interaction",
+     xlab1 = "age", xlab2 = "year",
+     mean.lab = "mean", ylab1 = "basis function", ylab2 = "coefficient") # call to plot.ftsm
 ```
 
 The first basis function has a shape similar to mean (except at low ages). It represents a general increase of all costs. Roughly, we get the Rusam model if we assume that they have the same shape and the higher components are negligible. The best model of @CDLS18, M1, acknowledges that they may be different, but neglects the higher components as well. As the second component explains  `r  format(Kx_varExplained[2], nsmall = 1)`% of the variance, we except a more precise prediction by incorporating it into the modelling process.
  
 The second basis function models shifts of costs at lower and higher ages compared to the middle ages. The third basis function describes the movement of costs at high ages.  The fourth basis function models changes in the ages around 30 and 70. However, it explains only `r format(Kx_varExplained[4], nsmall = 1)`% of the variance and the corresponding coefficient looks like random noise, thus we will not consider it further.
 
-Looking at the coefficients, we immediately notice the jump in the first coefficient from the year 1995 to 1996 and all coefficients seem to have exceptional behavior in the years 2003 and 2004. Outliers in health insurance are most of the time due to changes in the reimbursement system for medical services. In fact, this is here the case. From 1995 to 1996 the cost recovery principle was replaced by a 	lump compensation system, see @wiki_Fallpauschale. In 2003 there was a voluntary switch to a new German Diagnosis Related Groups (G--DRG) system.  It was made obligatory in 2004, but many hospitals had problems with the switch and were unable to use the system until 2015, see @wiki_GDRG. Thus, we will drop the data of the year 1995 because of the regime change and the data of the years 2003 and 2004 because it is certainly flawed. 
+Looking at the coefficients, we immediately notice the jump in the first coefficient from the year 1995 to 1996 and all coefficients seem to have exceptional behavior in the years 2003 and 2004. Outliers in health insurance are most of the time due to changes in the reimbursement system for medical services. In fact, this is here the case. From 1995 to 1996 the cost recovery principle was replaced by a lump compensation system, see @SM00. In 2003 there was a voluntary switch to a new German Diagnosis Related Groups (G--DRG) system.  It was made obligatory in 2004, but many hospitals had problems with the switch and were unable to use the system until 2005, see @Boecking2005 and @Ahrens2004. Thus, we will drop the data of the year 1995 because of the regime change and the data of the years 2003 and 2004 because it is certainly flawed. 
 
 
 
@@ -205,25 +208,24 @@ Kx2_varExplained <- round(100 * Kx2_fdm$varprop, 1)
 We refit the model on the remaining data. This time the components explain `r  format(Kx2_varExplained[1], nsmall = 1)`%, `r  format(Kx2_varExplained[2], nsmall = 1)`%, and `r format(Kx2_varExplained[3], nsmall = 1)`%, thus in total `r format(sum(Kx2_varExplained), nsmall = 1)`% of the variance and are plotted in Figure\ \ref{fig:plot_Kx2_fdm}. The increase of costs at the younger ages becomes more prominent in the first basis function. The second basis function is mostly devoted to this and is now missing the changes at higher ages. The third basis function is similar to the one before. Again the second and third basis function together control the behavior at lower and higher ages. The residuals $e_t(x)$ are plotted on the left hand side of Figure\ \ref{fig:plot_Kx2_res_interaction}. They are slightly less in younger ages, but do not exhibit a trend in time. 
 
 
-```{r plot_Kx2_fdm, fig.cap = 'Funtional data model after outlier removal', fig.show = 'hold', out.width='100%'}
-oldpar <- par(no.readonly = TRUE)
-par(mar = c(5,4,4,2) + 0.1 - 1) #default mar=c(5,4,4,2) + 0.1
-plot(Kx2_fdm) 
-par(oldpar)
+```{r plot_Kx2_fdm, fig.show = 'hold', out.width='100%', fig.cap = 'Funtional data model after outlier removal'}
+plot(Kx2_fdm,      main.title = "main effects", interaction.title = "interaction",
+     xlab1 = "age", xlab2 = "year",
+     mean.lab = "mean", ylab1 = "basis function", ylab2 = "coefficient") # call to plot.ftsm
 ```
 
 It is very instructive to plot the full age--time--interaction, i.e., the data minus the mean across time. We include the years that we want to predict as fat lines, see right hand side of Figure\ \ref{fig:plot_Kx2_res_interaction}. Again, we note that most changes happen at lower and higher ages. At higher ages we have a strong increase, which we can read off the first basis function. At the lower ages there is an increase with some ups and downs, which is the reason for shape of the second basis function besides the first. There have been  hardly any changes for the ages from 34 to 53 in the data until 2008, which we use for fitting. But for our test years we see a bump appearing at the ages 45 to 55. As these years are between the group from 35 to 44, which is still constant, and the group above 55, which was always volatile, a change in the smoothing method is the most likely explanation. Unfortunately, it is impossible to foresee the appreance of this bump because there was no indication of it before.
 
 
 
-```{r plot_Kx2_res_interaction, fig.cap = 'Residuals and interactions', fig.show = 'hold', out.width='50%'}
+```{r plot_Kx2_res_interaction, fig.cap = 'Residuals and interactions in rainbow colors', fig.show = 'hold', out.width='50%'}
 #residuals
 oldpar <- par(no.readonly = TRUE)
 par(mar=c(5,4,4,2) + 0.1 - 1) #mar=c(5,4,4,2) + 0.1
 plot(fds(Kx2_fdm$residuals$x, Kx2_fdm$residuals$y, xname = "Age"), 
      main = paste0("residuals (", min(Kx2_fdm$year), " - ",  max(Kx2_fdm$year), ")"),
-     plotlegend = TRUE,  legendpos = "bottomleft" #, colorchoice = "gray"
-     )
+     xlab = "age", ylab = "", 
+     plotlegend = TRUE,  legendpos = "bottomleft")
 
 # interaction
 Kx_all <- Kx2
@@ -231,8 +233,10 @@ Kx_all$rate$male <- Kx_all$rate$male - matrix(Kx2_fdm$basis[, "mean"],
                                               nrow = nrow(Kx_all$rate$male), 
                                               ncol = ncol(Kx_all$rate$male), 
                                               byrow = FALSE) 
-plot(Kx_all, main = paste0("interactions (", min(Kx_all$year), " - ",  max(Kx_all$year), ")"),
-     ylab = "", plotlegend = TRUE, legendpos = "topleft", # colorchoice = "gray",
+plot(Kx_all, 
+     main = paste0("interactions (", min(Kx_all$year), " - ",  max(Kx_all$year), ")"),
+     xlab = "age", ylab = "", 
+     plotlegend = TRUE, legendpos = "topleft",
      lwd = c(rep(1, length(Kx_all$year)-3), rep(4,3)))
 par(oldpar)
 ```
@@ -240,7 +244,7 @@ par(oldpar)
 
 
 
-# Choosing a time series model and forecasting it
+# Time series models for the coefficients $\kappa_j$
 
 Because we have only few observation years, we should choose a simple and robust time series model, so a *random walk with drift* (also known as a ARIMA(0,1,0) model with drift) is the natural choice. In this case the one--step--ahead coefficient $\kappa_j(t+1)$  arises as the sum of the previous one, a constant drift $d_j$, and a normal distributed error:  
 
@@ -248,7 +252,7 @@ $$
 \kappa_j(t+1) = \kappa_j(t) + d_j + \epsilon_j(t), \quad \mbox{where } \epsilon_j(t) \sim \mathrm{N}(0, \sigma_j^2).
 $$
 
-The estimated values for the $\kappa_j$ before and after outlier removal are shown in Table\ \ref{tab:forecast_rwdrift_coeff}. In both cases we have an obvious drift in the $\kappa_1$, while there is no significant evidence for a drift in $\kappa_2$ and $\kappa_3$.
+The parameters for the $\kappa_j$ before and after outlier removal are estimated by minimizing the square error and shown in Table\ \ref{tab:forecast_rwdrift_coeff}. In both cases we have an obvious drift in the $\kappa_1$, while there is no significant evidence for a drift in $\kappa_2$ and $\kappa_3$.
 However, we have no reason to believe that they do not have a drift, so we keep the best estimate. Note that $d_1$ before outlier removal is much larger than after outlier removal, this is due to the jump of $\kappa_1$ from the year 1995 to 1996.
 Figure\ \ref{fig:forecast_rwdrift_coeff_plot} shows the predictions in red together with yellow 90% prediction intervals, the true values are given in black. Remember that the basis functions changed a bit through the outlier removal and therefore the coefficients as well.
 Removing the outliers has roughly halved the prediction intervals. The most dominating coefficient $\kappa_1$ is predicted well with the exception of the jump in 2010, which is at the border of the prediction interval in the case with outlier removal.
@@ -305,9 +309,11 @@ kable(merge(model_Kx, model_rw, by = "k"),
 ```
 ```{r forecast_rwdrift_coeff_plot, fig.height = 2, fig.show = 'hold', out.width='100%', fig.cap = 'Forecasting the coefficents with a random walk with drift before and after outlier removal'}
 ylimList <-list(c(-1000, 3000), c(-500, 1200), c(-200, 100))
-plot_coeff(Kx_forecast, KxTest, ylimList = ylimList)
+plot_coeff(Kx_forecast, KxTest, main = "random walk before outlier removal", 
+           xlim = c(min(years), max(years)), ylimList = ylimList)
 #
-plot_coeff(Kx2_forecast_rw, KxTest, ylimList = ylimList)
+plot_coeff(Kx2_forecast_rw, KxTest, main = "random walk after outlier removal",
+           xlim = c(min(years), max(years)), ylimList = ylimList)
 ```
 
 The characteristic of the random walk model with drift is that each jump is fully added to all future values and any two jumps are uncorrelated. Intuitively, we expect that a huge increase of costs to be followed by a smaller one. Thus, we try a second time series model which potentially has the option to capture this, namely the simplest form of exponential smoothing with a linear trend, *Holt’s linear trend method* (which is equivalent to an ARIMA(0,2,2) model with restrictions on the coefficients). It can be formulated as a state space model with additive errors as follows, see @Holt2004, @HKOS08, and @HA18:
@@ -323,8 +329,10 @@ The model uses the two latent variables $l(t)$, the trend, and $b(t)$, the growt
 The parameters $\alpha$ and $\beta$ determine how much of the observed error is incorporated into the level resp.\ the slope.
 Interesting special cases are: $\alpha= \beta = 0$ is a linear regression;  $\alpha=1$ and $\beta = 0$ is a random walk with drift $b(t) = \mbox{const.}$  
 
-One disadvantage of this model type is that it is difficult to find the parameters $\alpha$ and $\beta$. Often several sets of parameters provide a good fit. In particular, often ones with a large value of $\beta$ fit well, but this means the growth/slope changes very fast, which is usually undesirable. One deals with this problem by restricting $\beta$ to small values. We use Holt's linear model only for the functional data model after outlier removal. The unrestricted parameters are given in the left hand side of Table\ \ref{tab:forecast_ets_coeff} and the time series are plotted in top row of Figure\ \ref{fig:forecast_ets_coeff_plot}. We do in fact see large $\beta_1$ and $\beta_2$, and the high jumps of the second coefficient at the end are extrapolated into the future. While this may look plausible in the figure, remember that it means in reality decreasing health cost at lower ages (even after taking the other components into account) which cannot be true in the long run. If we use the restriction $\beta \le 0.2$, the models for $\kappa_1$ and $\kappa_2$ become random walks with drift. So, to get something new we require $\beta \le 0.25$. Here, $\kappa_1$ has an interesting new model, $\kappa_2$ follows a random walk, and $\kappa_3$ is modeled by a linear regression, see right hand side of  Table\ \ref{tab:forecast_ets_coeff} and bottom row of Figure\ \ref{fig:forecast_ets_coeff_plot}. 
-
+One disadvantage of this model type is that the estimation of the parameters $\alpha$ and $\beta$ is often unstable, see @AFADLJM16. We estimate again with respect to the minimal mean square error. Unfortunately, the error surface is not guaranteed to be convex, so several local minima may exist, see @CM88. One particular problem is that often the trend gets overestimated, see @GM85. This means the growth/slope changes very fast, which is usually undesirable. 
+We use Holt's linear model only for the functional data model after outlier removal. The parameters are given in the left hand side of Table\ \ref{tab:forecast_ets_coeff} and the time series are plotted in top row of Figure\ \ref{fig:forecast_ets_coeff_plot}. We do in fact see large $\beta_1$ and $\beta_2$, and the high jumps of the second coefficient at the end are extrapolated into the future. While this may look plausible in the figure, remember that it means in reality decreasing health cost at lower ages (even after taking the other components into account) which cannot be true in the long run. 
+We follow the advice of @CM88 and restrict $\beta$ to small values. For the $\beta_1 \le 0.23$ respectively $\beta_2 \le 0.5$, the models for $\kappa_1$ and $\kappa_2$ become the known random walks with drift. So, we require $\beta \le 0.25$, which is on the one hand the nearly minimal restriction to get a new model and on the other hand still an acceptable rate of change for the trend. Thus, $\kappa_1$ has an interesting new model, $\kappa_2$ follows a random walk, and $\kappa_3$ is modeled by a linear regression, see right hand side of  Table\ \ref{tab:forecast_ets_coeff} and bottom row of Figure\ \ref{fig:forecast_ets_coeff_plot}.
+ 
 
 
 ```{r forecast_ets_unres_coeff}
@@ -380,24 +388,26 @@ kable(merge(model_ets_unres, model_ets, by = "k"),
 
 
 ```{r forecast_ets_coeff_plot, fig.height = 2, fig.show = 'hold', out.width='100%', fig.cap = 'Forecasting the coefficents with Holt’s linear trend method, unrestricted and restricted.'}
-plot_coeff(Kx2_forecast_ets_unres, KxTest, ylimList = ylimList)
+plot_coeff(Kx2_forecast_ets_unres, KxTest, main = "unrestricted Holt’s linear trend method",
+           xlim = c(min(years), max(years)), ylimList = ylimList)
 #, out.width='50%'
-plot_coeff(Kx2_forecast_ets, KxTest, ylimList = ylimList)
+plot_coeff(Kx2_forecast_ets, KxTest, main = "restricted Holt’s linear trend method",
+           xlim = c(min(years), max(years)), ylimList = ylimList)
 ```
 
 
 
 
-# Forcasting the whole model
+# Forecasting
 
-In the preceding sections we defined all the components for three stochastic models  --- our favorite model is the one after outlier removal with random walk with drift as time series model, as an alternative we use Holt's linear model as the time series model; finally, we have for comparison the model based on the whole data set with random walk with drift. We are now ready to produce point--forecasts as well as prediction intervals. 
+In the preceding sections we defined all the components for three stochastic models  --- our favorite model is the one after outlier removal with random walk with drift as time series model, as an alternative we use Holt's linear model with restricted $\beta$ coefficient as the time series model; finally, we have for comparison the model based on the whole data set with random walk with drift. We are now ready to produce point--forecasts as well as prediction intervals. 
 
-Figure\ \ref{fig:forecast_interaction} shows the age--time--interaction term for the years 2009 to 2011. To get the total claims one has to add the purely age--dependent average level $\mu(x)$. It is left out in order to show the time--dependence more clearly. Adding it one gets graphs like the left hand side of Figure\ \ref{fig:plot_claims_exposure}, which is dominated by the steepness of $\mu(x)$.
+Figure\ \ref{fig:forecast_interaction} shows the age--time--interaction term for the years 2009 to 2011, i.e., it  it corresponds to right hand side of Figure\ \ref{fig:plot_Kx2_res_interaction}. To get the total claims one has to add the purely age--dependent average level $\mu(x)$.  It is left out in order to show the time--dependence more clearly. Adding it one gets a graph like the left hand side of Figure\ \ref{fig:plot_claims_exposure}, which is dominated by the steepness of $\mu(x)$.
 
-The black lines are the actual claims. The red lines are the predicted claims. The gray lines show the best approximation possible to the actual data with the chosen basis functions. The thin red lines are the 90% prediction intervals based on the variance formula of Section\ \ref{functional-data-modelling-approach} and normality assumption. Finally, the yellow shaded areas are the prediction intervals based on Monte Carlo simulation, where the unknown error distributions are simulated by the bootstrap method of @HS09. The latter is implemented in the *simulate* function of the **R** package *demography*.
+The black lines are the actual interaction terms. The fat red lines are the predicted ones. The gray lines show the best approximation possible to the actual data with the chosen basis functions. The thin red lines are the 90% prediction intervals based on the variance formula of Section\ \ref{functional-data-modelling-approach} and normality assumption. Finally, the yellow shaded areas are the prediction intervals based on Monte Carlo simulation, where the unknown error distributions are simulated by the bootstrap method of @HS09. The latter is implemented in the *simulate* function of the **R** package *demography*.
 
 
-```{r forecast_interaction, fig.height = 2.9, fig.show = 'hold',  out.width = '100%', fig.cap = 'Forecasts for the years 2009 to 2011'}
+```{r forecast_interaction, fig.height = 2.6, fig.show = 'hold',  out.width = '100%', fig.cap = 'Forecasts of the interaction terms for the years 2009 to 2011 (black = actual, fat red = prediction, thin red = 90\\% prediction intervals based on the variance formula, yellow shaded areas = 90\\% prediction intervals based on nonparametric bootstrap methods, gray = best approximation given the  chosen basis functions)'}
 # random walk #####
 #
 plot_sim_basis(Kx2_forecast_rw, KxTest, KxTest$year, main = "random walk" , 
@@ -406,7 +416,7 @@ plot_sim_basis(Kx2_forecast_rw, KxTest, KxTest$year, main = "random walk" ,
 
 # ets #####
 #
-plot_sim_basis(Kx2_forecast_ets, KxTest, KxTest$year, main = "Holt's" , 
+plot_sim_basis(Kx2_forecast_ets, KxTest, KxTest$year, main = "restricted Holt's" , 
                ylim = c(-100, 500), quant.lower = .05, quant.upper = .95)  
 
 
@@ -422,11 +432,9 @@ A gap between the black and the gray curve tells us that the claim curve has a n
 Turning to the prediction intervals we immediately notice the huge intervals if we do not remove the outliers. But even these cannot capture the beforehand unseen change in the middle ages. With the removal of the outliers the prediction intervals become very narrow. The gray curves stay inside, this follows essentially from the fact that time series predictions stay inside their prediction intervals in  Figure\ \ref{fig:forecast_rwdrift_coeff_plot} resp.\ \ref{fig:forecast_ets_coeff_plot}, but the actual claim curve in black moves outside these bound while it evolves into beforehand unseen shapes. The computationally less expensive approximation of the prediction intervals by the variance formula and normality assumption is most of the time good, exceptions occur when the intervals are very wide --- at the younger ages and for the lower bounds in the case without outlier removal.  
 
 
-Standard quality measures in form of the rooted mean square error (RMSE) and the mean absolute error (MAE) are given in Table\ \ref{tab:forecast_errors}. For comparison the best model of @CDLS18, M1, is included. As we have already seen in Figure\ \ref{fig:forecast_interaction} the model with Holt's linear trend method is better in 2010, but worse in 2011 than the model with the random walk with drift. Both give slightly better predictions than the M1 model. However, the main improvement of the models here compared to M1 is the more refined error structure. 
+Standard quality measures in form of the rooted mean square error (RMSE) and the mean absolute error (MAE) are given in Table\ \ref{tab:forecast_errors}. For comparison the best model of @CDLS18, M1, is included. Note that for the model M1 outlier removal was not performed. As we have already seen in Figure\ \ref{fig:forecast_interaction} the model with Holt's linear trend method is better in 2010, but worse in 2011 than the model with the random walk with drift. Both give slightly better predictions than the M1 model. However, the main improvement of the models here compared to M1 is the more refined error structure. 
 Firstly, we use here an age--dependent approximation and observation error with variance $v(x)$ resp.\ $\sigma^2_t(x)$.
 Secondly, we use more components for the age--time--interaction and take the uncertainties of the time series prediction for the coefficients $\kappa_j(t)$ into account, which were neglected in the M1 model. Together this leads to more age--specific prediction intervals. 
-
-
 
 
 
