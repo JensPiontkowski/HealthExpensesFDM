@@ -23,4 +23,4 @@ library(devtools)
 install_github("robjhyndman/demography#37")
 install_github("JensPiontkowski/ftsa")
 ```
-For the remaining package versions see the (http:./sessionInfo.txt)
+For the remaining package versions see *sessionInfo.txt*
