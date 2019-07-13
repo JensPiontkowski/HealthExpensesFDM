@@ -13,17 +13,14 @@ To appear in [Annals of Actuarial Science](https://www.cambridge.org/core/journa
 
 **Special versions of R packages**
 
-The treatment of the outliers required some changes in **R** packages *demography* and *ftsa*. At the moment development versions of these packages are needed. In addition, the newest version of the *rainbow* package is needed.
+The treatment of the outliers required some changes in **R** packages *demography* and *ftsa*. Special modified versions of these packages are needed.
 
 This following code will install the required versions: 
 
-
-
 ```r
-install.packages("rainbow")
 install.packages("devtools")
 library(devtools)
-install_github("robjhyndman/demography")
+install_github("robjhyndman/demography#37")
 install_github("JensPiontkowski/ftsa")
 ```
-
+For the remaining package versions see the (http:./sessionInfo.txt)
